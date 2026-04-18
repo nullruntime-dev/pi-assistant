@@ -1,0 +1,15 @@
+[Unit]
+Description=Pi Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/pi-assistant
+Environment=PATH=/home/pi/pi-assistant/.venv/bin:/usr/bin
+ExecStart=/home/pi/pi-assistant/.venv/bin/python run.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+# Web framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+python-multipart>=0.0.9
+
+# HTTP client
+httpx>=0.27.0
+
+# Config
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+pydantic-settings>=2.2.1
+
+# Audio
+numpy>=1.26.0
+sounddevice>=0.4.6
+
+# Wake word
+openwakeword>=0.6.0
+
+# Speech-to-text
+faster-whisper>=1.0.0
+
+# Text-to-speech
+piper-tts>=1.2.0
+
+# AI Agent
+google-generativeai>=0.8.0
+
+# Music playback
+youtube-search-python>=1.6.0
+yt-dlp>=2024.0.0

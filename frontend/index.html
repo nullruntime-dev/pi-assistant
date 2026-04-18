@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Assistant</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Ambient particles -->
+    <div class="particles" id="particles"></div>
+
+    <div class="container">
+        <!-- Top bar: Time and Weather -->
+        <header class="top-bar">
+            <div class="datetime">
+                <div class="time" id="time">00:00</div>
+                <div class="date" id="date">Loading...</div>
+            </div>
+            <div class="weather" id="weather">
+                <div class="weather-icon" id="weather-icon">☀️</div>
+                <div class="weather-info">
+                    <div class="temp" id="temp">--°</div>
+                    <div class="desc" id="weather-desc">Loading...</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main: Assistant orb -->
+        <main class="assistant-area">
+            <div class="orb-container">
+                <div class="orb" id="orb">
+                    <div class="orb-glow"></div>
+                    <div class="orb-core"></div>
+                    <div class="orb-ring ring-1"></div>
+                    <div class="orb-ring ring-2"></div>
+                    <div class="orb-ring ring-3"></div>
+                </div>
+                <!-- Audio bars for speaking animation -->
+                <div class="audio-bars" id="audio-bars">
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                </div>
+            </div>
+            <div class="status" id="status">Ready</div>
+        </main>
+
+        <!-- Transcript display -->
+        <div class="transcript">
+            <div class="transcript-text" id="transcript">
+                <div class="label">You said</div>
+                <div class="content" id="transcript-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
