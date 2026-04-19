@@ -272,24 +272,33 @@ setup_config() {
 # Install systemd service
 #------------------------------------------
 install_service() {
-    log_step "Installing systemd service..."
+    log_step "Installing systemd user service..."
 
     cd "$INSTALL_DIR"
 
-    # Update service file with correct user
-    CURRENT_USER=$(whoami)
-    sed -i "s/User=pi/User=$CURRENT_USER/g" scripts/pi-assistant.service
-    sed -i "s/Group=pi/Group=$CURRENT_USER/g" scripts/pi-assistant.service
-    sed -i "s|/home/pi|$HOME|g" scripts/pi-assistant.service
+    # Substitute any remaining $HOME placeholders in kiosk scripts
     sed -i "s|/home/pi|$HOME|g" scripts/kiosk.sh
     sed -i "s|/home/pi|$HOME|g" scripts/kiosk.desktop
 
-    # Install service
-    sudo cp scripts/pi-assistant.service /etc/systemd/system/
-    sudo systemctl daemon-reload
-    sudo systemctl enable pi-assistant
+    # Install as a user service so it inherits the user's audio session (PulseAudio/PipeWire)
+    mkdir -p "$HOME/.config/systemd/user"
+    cp scripts/pi-assistant.service "$HOME/.config/systemd/user/"
+    systemctl --user daemon-reload
+    systemctl --user enable pi-assistant
 
-    log_info "Systemd service installed and enabled"
+    # Remove any previous system-level install
+    if [[ -f /etc/systemd/system/pi-assistant.service ]]; then
+        log_info "Removing legacy system-level service..."
+        sudo systemctl disable pi-assistant 2>/dev/null || true
+        sudo systemctl stop pi-assistant 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/pi-assistant.service
+        sudo systemctl daemon-reload
+    fi
+
+    # Enable lingering so the user service starts at boot without login
+    sudo loginctl enable-linger "$USER"
+
+    log_info "Systemd user service installed and enabled"
 }
 
 #------------------------------------------
@@ -356,9 +365,9 @@ print_complete() {
     echo "      sudo reboot"
     echo ""
     echo "📖 Commands:"
-    echo "   Start:   sudo systemctl start pi-assistant"
-    echo "   Stop:    sudo systemctl stop pi-assistant"
-    echo "   Logs:    journalctl -u pi-assistant -f"
+    echo "   Start:   systemctl --user start pi-assistant"
+    echo "   Stop:    systemctl --user stop pi-assistant"
+    echo "   Logs:    journalctl --user -u pi-assistant -f"
     echo ""
 }
 

@@ -10,21 +10,20 @@ class WakeWordDetector:
         self.threshold = threshold
         self.wake_word = wake_word
 
-        # Find model path for requested wake word
         model_paths = openwakeword.get_pretrained_model_paths()
         matching = [p for p in model_paths if wake_word in p]
 
-        if matching:
-            # Load specific model
-            self.model = Model(wakeword_model_paths=matching)
-            print(f"Wake word detector ready: '{wake_word}' (threshold: {threshold})")
-        else:
-            # Load all models, filter by name later
-            print(f"Wake word '{wake_word}' not found, loading all models")
-            self.model = Model()
+        if not matching:
+            available = sorted({p.split("/")[-1].rsplit(".", 1)[0] for p in model_paths})
+            raise ValueError(
+                f"Wake word '{wake_word}' not available. "
+                f"openwakeword ships these pretrained models: {available}. "
+                f"Set WAKE_WORD in .env to one of them, or train a custom model."
+            )
 
-        # Get model names for filtering
+        self.model = Model(wakeword_model_paths=matching)
         self.model_names = list(self.model.models.keys())
+        print(f"Wake word detector ready: '{wake_word}' (threshold: {threshold})")
         print(f"Loaded models: {self.model_names}")
 
     def detect(self, audio_chunk: np.ndarray) -> bool:
@@ -47,8 +46,9 @@ class WakeWordDetector:
         # Run prediction
         prediction = self.model.predict(audio_chunk)
 
-        # Check scores for each model
         for model_name, score in prediction.items():
+            if self.wake_word not in model_name:
+                continue
             if score > self.threshold:
                 print(f"Wake word detected: {model_name} (score: {score:.2f})")
                 return True

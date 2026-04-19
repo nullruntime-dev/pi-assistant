@@ -31,4 +31,6 @@ chromium-browser \
     --start-fullscreen \
     --autoplay-policy=no-user-gesture-required \
     --check-for-update-interval=31536000 \
+    --password-store=basic \
+    --use-mock-keychain \
     http://localhost:9091

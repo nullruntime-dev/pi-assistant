@@ -1,8 +1,28 @@
 import asyncio
+import shutil
 import subprocess
+import sys
+from pathlib import Path
 from typing import Optional
 
-from youtubesearchpython import VideosSearch
+import yt_dlp
+
+
+def _ytdlp_path() -> str:
+    """Locate a working yt-dlp — prefer the venv's over any outdated system one."""
+    venv_bin = Path(sys.executable).parent / "yt-dlp"
+    if venv_bin.exists():
+        return str(venv_bin)
+    return shutil.which("yt-dlp") or "yt-dlp"
+
+
+def _format_duration(seconds: Optional[float]) -> str:
+    if not seconds:
+        return ""
+    total = int(seconds)
+    m, s = divmod(total, 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
 class MusicPlayer:
@@ -18,19 +38,26 @@ class MusicPlayer:
         Returns:
             List of {title, url, duration, channel}
         """
-        search = VideosSearch(query, limit=limit)
-        results = await asyncio.to_thread(search.result)
+        def _search() -> list[dict]:
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "extract_flat": "in_playlist",
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+            videos = []
+            for e in (info or {}).get("entries", []) or []:
+                videos.append({
+                    "title": e.get("title", "Unknown"),
+                    "url": e.get("url") or e.get("webpage_url", ""),
+                    "duration": _format_duration(e.get("duration")),
+                    "channel": e.get("channel") or e.get("uploader", "Unknown"),
+                })
+            return videos
 
-        videos = []
-        for item in results.get("result", []):
-            videos.append({
-                "title": item.get("title", "Unknown"),
-                "url": item.get("link", ""),
-                "duration": item.get("duration", ""),
-                "channel": item.get("channel", {}).get("name", "Unknown"),
-            })
-
-        return videos
+        return await asyncio.to_thread(_search)
 
     async def play(self, query: str) -> str:
         """
@@ -53,28 +80,28 @@ class MusicPlayer:
 
         print(f"Playing: {title}")
 
+        ytdlp = _ytdlp_path()
+
         # Play audio using yt-dlp + mpv (audio only)
         try:
             self._process = subprocess.Popen(
                 [
                     "mpv",
                     "--no-video",
-                    "--really-quiet",
                     "--no-terminal",
-                    "--audio-device=auto",  # Auto-detect audio device
+                    "--audio-device=auto",
                     "--volume=80",
+                    f"--script-opts=ytdl_hook-ytdl_path={ytdlp}",
                     url,
                 ],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
             )
             return f"Now playing: {title}"
         except FileNotFoundError:
             # Try ffplay as fallback
             try:
-                # Get audio URL with yt-dlp
                 result = subprocess.run(
-                    ["yt-dlp", "-g", "-f", "bestaudio", url],
+                    [ytdlp, "-g", "-f", "bestaudio", url],
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -85,11 +112,10 @@ class MusicPlayer:
                     self._process = subprocess.Popen(
                         ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", audio_url],
                         stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
                     )
                     return f"Now playing: {title}"
             except Exception as e:
-                return f"Playback failed: {e}. Install mpv: sudo pacman -S mpv"
+                return f"Playback failed: {e}. Install mpv: sudo apt install mpv"
 
         return f"Found: {title}, but no player available. Install mpv."
 

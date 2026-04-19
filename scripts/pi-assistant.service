@@ -1,22 +1,16 @@
 [Unit]
 Description=Pi Assistant Backend
-After=network.target sound.target
+After=default.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/home/pi/pi-assistant
-Environment="PATH=/home/pi/pi-assistant/.venv/bin:/usr/bin"
-EnvironmentFile=/home/pi/pi-assistant/.env
-ExecStart=/home/pi/pi-assistant/.venv/bin/python run.py
+WorkingDirectory=%h/pi-assistant
+EnvironmentFile=%h/pi-assistant/.env
+ExecStart=%h/pi-assistant/.venv/bin/python run.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# Audio access
-SupplementaryGroups=audio
-
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

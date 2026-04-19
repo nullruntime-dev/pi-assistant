@@ -1,7 +1,13 @@
 import re
+from datetime import datetime
+
 import google.generativeai as genai
 
 from backend.services.music import music_player
+from backend.services.weather import WeatherService
+
+
+weather_service = WeatherService()
 
 
 class Assistant:
@@ -36,6 +42,22 @@ For stopping music:
 - User: "Stop the music" -> [STOP_MUSIC]
 - User: "Pause" -> [STOP_MUSIC]
 
+For time/date requests, respond ONLY with this exact format:
+[GET_DATETIME]
+
+Examples:
+- User: "What time is it?" -> [GET_DATETIME]
+- User: "What's today's date?" -> [GET_DATETIME]
+- User: "What day is it?" -> [GET_DATETIME]
+
+For weather requests, respond ONLY with this exact format:
+[GET_WEATHER]
+
+Examples:
+- User: "What's the weather?" -> [GET_WEATHER]
+- User: "How hot is it outside?" -> [GET_WEATHER]
+- User: "Is it raining?" -> [GET_WEATHER]
+
 For all other queries, respond normally."""
 
     async def process(self, user_input: str) -> str:
@@ -63,6 +85,12 @@ For all other queries, respond normally."""
                 result = music_player.stop()
                 return result
 
+            if re.search(r'\[GET_DATETIME\]', response):
+                return self._format_datetime()
+
+            if re.search(r'\[GET_WEATHER\]', response):
+                return await self._format_weather()
+
             return response
 
         except Exception as e:
@@ -87,3 +115,16 @@ For all other queries, respond normally."""
             return response.text
 
         return "I'm not sure how to respond to that."
+
+    def _format_datetime(self) -> str:
+        now = datetime.now()
+        return now.strftime("It's %A, %B %-d, %Y, %-I:%M %p.")
+
+    async def _format_weather(self) -> str:
+        data = await weather_service.get_current()
+        if "error" in data:
+            return "Sorry, I couldn't fetch the weather right now."
+        return (
+            f"It's {data['temp_f']} degrees and {data['description'].lower()}, "
+            f"feels like {data['feels_like_f']}, humidity {data['humidity']} percent."
+        )

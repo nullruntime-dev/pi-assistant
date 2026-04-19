@@ -13,7 +13,7 @@ pydantic>=2.7.0
 pydantic-settings>=2.2.1
 
 # Audio
-numpy>=1.26.0
+numpy>=1.26.0,<2
 sounddevice>=0.4.6
 
 # Wake word
@@ -29,5 +29,4 @@ piper-tts>=1.2.0
 google-generativeai>=0.8.0
 
 # Music playback
-youtube-search-python>=1.6.0
 yt-dlp>=2024.0.0
