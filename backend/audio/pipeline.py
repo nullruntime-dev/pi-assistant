@@ -1,5 +1,6 @@
 import asyncio
 import queue
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -53,7 +54,10 @@ class AudioPipeline:
     def tts(self):
         if self._tts is None:
             from backend.audio.tts import TextToSpeech
-            self._tts = TextToSpeech(voice=self.settings.tts_voice)
+            self._tts = TextToSpeech(
+                voice=self.settings.tts_voice,
+                length_scale=self.settings.tts_length_scale,
+            )
         return self._tts
 
     @property
@@ -117,21 +121,39 @@ class AudioPipeline:
 
     async def _handle_activation(self):
         """Handle wake word detection - record, transcribe, respond, then follow up."""
+        from backend.services.music import music_player
+
+        # Duck any currently-playing music so the mic can hear the user clearly.
+        had_music_before = music_player.is_playing()
+        if had_music_before:
+            music_player.duck()
+
         self.wake_word.reset()
         self._drain_queue()
 
         try:
             is_follow_up = False
+            prev_user_text: str | None = None
             while self.running:
                 text = await self._listen_and_transcribe(is_follow_up)
                 if text is None:
                     break
 
-                await self._stream_respond(text)
+                # In follow-up mode, gate on whether the transcript is plausibly
+                # addressed to the assistant — keeps TV/background speech from
+                # hijacking the session.
+                if is_follow_up and prev_user_text is not None:
+                    relevant = await self.agent.is_follow_up_relevant(prev_user_text, text)
+                    if not relevant:
+                        print(f"[follow-up] dropped unrelated utterance: {text!r}")
+                        break
 
-                # Music playing would feed back into the mic — end the session instead.
-                from backend.services.music import music_player
-                if music_player.is_playing():
+                await self._stream_respond(text)
+                prev_user_text = text
+
+                # If the response started NEW music, end follow-up (mic would be flooded).
+                # Music that was already playing before activation is still ducked, so it's fine.
+                if music_player.is_playing() and not had_music_before:
                     break
 
                 is_follow_up = True
@@ -143,6 +165,8 @@ class AudioPipeline:
         finally:
             if self._agent is not None:
                 self._agent.reset_conversation()
+            # Restore any music we ducked at the start (no-op if it was stopped).
+            music_player.unduck()
             await self.assistant.set_state("idle")
 
     async def _listen_and_transcribe(self, is_follow_up: bool):
@@ -198,10 +222,11 @@ class AudioPipeline:
 
         await self.assistant.set_state("thinking")
         try:
+            t_stt = time.monotonic()
             text = await asyncio.to_thread(
                 self.stt.transcribe, audio, self.settings.sample_rate
             )
-            print(f"User said: {text}")
+            print(f"[timing] STT {time.monotonic() - t_stt:.2f}s -> {text!r}")
             await self.assistant.send_transcript(text, "You said")
         except Exception as e:
             print(f"STT error: {e}")
@@ -216,6 +241,7 @@ class AudioPipeline:
         """Stream agent response and speak sentence by sentence."""
         full_response: list[str] = []
         spoken_any = False
+        t_agent = time.monotonic()
 
         # TTS playback queue — synthesize happens in a thread, keeps main loop free
         tts_queue: asyncio.Queue = asyncio.Queue()
@@ -225,6 +251,8 @@ class AudioPipeline:
             async for sentence in self.agent.process_stream(user_text):
                 if not sentence.strip():
                     continue
+                if not full_response:
+                    print(f"[timing] agent first sentence {time.monotonic() - t_agent:.2f}s")
                 full_response.append(sentence)
 
                 if not spoken_any:

@@ -3,7 +3,8 @@ import time
 from datetime import datetime
 from typing import AsyncIterator
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from backend.services.music import music_player
 from backend.services.weather import WeatherService
@@ -18,17 +19,15 @@ _CHAT_IDLE_RESET_SECONDS = 120.0
 
 class Assistant:
     """
-    AI Assistant using Google Gemini.
+    AI Assistant using Google Gemini (google-genai SDK).
     Handles user queries with music playback.
     """
 
     def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite"):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(
-            model_name=model_name,
+        self.model_name = model_name
+        self.client = genai.Client(api_key=api_key)
+        self._config = types.GenerateContentConfig(
             system_instruction=self._get_system_instruction(),
-        )
-        self._gen_config = genai.types.GenerationConfig(
             temperature=0.7,
             max_output_tokens=256,
         )
@@ -41,12 +40,55 @@ class Assistant:
         self._last_turn_at = 0.0
 
     def _ensure_chat(self):
-        """Return a live chat session, recycling if idle too long."""
+        """Return a live async chat session, recycling if idle too long."""
         now = time.monotonic()
         if self._chat is None or (now - self._last_turn_at) > _CHAT_IDLE_RESET_SECONDS:
-            self._chat = self.model.start_chat()
+            self._chat = self.client.aio.chats.create(
+                model=self.model_name,
+                config=self._config,
+            )
         self._last_turn_at = now
         return self._chat
+
+    async def is_follow_up_relevant(self, prev_user: str, new_text: str) -> bool:
+        """
+        Classify whether a follow-up transcript is plausibly addressed to the
+        assistant, vs. overheard speech (TV, background conversation).
+        Returns True on any error — we'd rather occasionally process junk than
+        drop a real follow-up.
+        """
+        new_stripped = new_text.strip()
+        if not new_stripped:
+            return False
+        # Very short acknowledgements ("thanks", "ok", "yes") are almost always addressed.
+        if len(new_stripped.split()) <= 2:
+            return True
+
+        prompt = (
+            "You gate a voice assistant's follow-up mode. Given the previous user "
+            "command and a newly transcribed utterance, decide if the new utterance "
+            "is plausibly addressed to the assistant (a follow-up question, a new "
+            "command, or an acknowledgement) versus overheard speech like TV, "
+            "movie dialogue, or a background conversation.\n"
+            "Respond with exactly one word: YES or NO.\n\n"
+            f"Previous user command: {prev_user!r}\n"
+            f"New utterance: {new_stripped!r}\n"
+            "Answer:"
+        )
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=4,
+                ),
+            )
+            answer = (getattr(response, "text", "") or "").strip().upper()
+            return not answer.startswith("NO")
+        except Exception as e:
+            print(f"Follow-up relevance check failed: {e}")
+            return True
 
     def _get_system_instruction(self) -> str:
         return """You are a helpful voice assistant running on a Raspberry Pi.
@@ -104,11 +146,7 @@ For all other queries, respond normally."""
 
         try:
             chat = self._ensure_chat()
-            response = await chat.send_message_async(
-                user_input,
-                stream=True,
-                generation_config=self._gen_config,
-            )
+            response = await chat.send_message_stream(user_input)
 
             async for chunk in response:
                 text = getattr(chunk, "text", None)

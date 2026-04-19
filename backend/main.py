@@ -1,14 +1,30 @@
 import asyncio
 import json
+import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.types import Scope
 
 from backend.config import get_settings
+from backend.services.music import music_player
 from backend.services.weather import WeatherService
+
+
+class NoCacheStaticFiles(StaticFiles):
+    """Static files with cache disabled so browser refetches after a backend restart."""
+
+    async def get_response(self, path: str, scope: Scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+
+
+# New on every process start — clients reload when they see a different id.
+SERVER_ID = uuid.uuid4().hex
 
 # Audio pipeline - optional, requires numpy/sounddevice
 try:
@@ -58,6 +74,11 @@ async def lifespan(app: FastAPI):
     # Startup
     settings = get_settings()
 
+    async def _on_music_change(track):
+        await assistant.broadcast({"type": "music", "track": track})
+
+    music_player.on_change = _on_music_change
+
     if AUDIO_AVAILABLE:
         audio_pipeline = AudioPipeline(
             assistant=assistant,
@@ -80,12 +101,15 @@ app = FastAPI(title="Pi Assistant", lifespan=lifespan)
 # Serve frontend
 frontend_path = Path(__file__).resolve().parent.parent / "frontend"
 print(f"Frontend path: {frontend_path}")
-app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
+app.mount("/static", NoCacheStaticFiles(directory=str(frontend_path)), name="static")
 
 
 @app.get("/")
 async def index():
-    return FileResponse(frontend_path / "index.html")
+    return FileResponse(
+        frontend_path / "index.html",
+        headers={"Cache-Control": "no-store, must-revalidate"},
+    )
 
 
 @app.websocket("/ws")
@@ -93,8 +117,12 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     assistant.clients.append(websocket)
 
+    # Identify this process so the client can auto-reload after a backend restart.
+    await websocket.send_json({"type": "server_id", "id": SERVER_ID})
     # Send current state
     await websocket.send_json({"type": "state", "state": assistant.state})
+    # Send current music (if anything is playing) so a fresh page sees it.
+    await websocket.send_json({"type": "music", "track": music_player.current_track})
 
     try:
         while True:

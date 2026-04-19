@@ -28,7 +28,7 @@ class WakeWordDetector:
                 f"Set WAKE_WORD in .env to one of them, or train a custom model."
             )
 
-        self.model = Model(wakeword_model_paths=matching)
+        self.model = Model(wakeword_models=matching)
         self.model_names = list(self.model.models.keys())
         print(
             f"Wake word detector ready: '{wake_word}' "

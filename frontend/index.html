@@ -10,8 +10,99 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Ambient particles -->
-    <div class="particles" id="particles"></div>
+    <!-- Soundwave — audio-visualizer style, blue→pink centered behind the orb -->
+    <svg class="soundwaves" viewBox="0 0 2000 500" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+            <linearGradient id="wave-fill" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#1e40af" stop-opacity="0"/>
+                <stop offset="0.12" stop-color="#3b82f6"/>
+                <stop offset="0.35" stop-color="#60a5fa"/>
+                <stop offset="0.5" stop-color="#e9d5ff"/>
+                <stop offset="0.65" stop-color="#f472b6"/>
+                <stop offset="0.88" stop-color="#ec4899"/>
+                <stop offset="1" stop-color="#be185d" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="wave-center" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#60a5fa" stop-opacity="0"/>
+                <stop offset="0.1" stop-color="#60a5fa"/>
+                <stop offset="0.5" stop-color="#ffffff"/>
+                <stop offset="0.9" stop-color="#f472b6"/>
+                <stop offset="1" stop-color="#ec4899" stop-opacity="0"/>
+            </linearGradient>
+            <!-- Soft blurry glow path behind everything -->
+            <filter id="wave-glow" x="-10%" y="-40%" width="120%" height="180%">
+                <feGaussianBlur stdDeviation="18"/>
+            </filter>
+            <!-- Tighter glow for mid layer -->
+            <filter id="wave-glow-tight" x="-5%" y="-20%" width="110%" height="140%">
+                <feGaussianBlur stdDeviation="6"/>
+            </filter>
+            <!-- Varied-amplitude wave silhouette (roughly the shape in the reference) -->
+            <path id="wave-body"
+                d="M 0 250
+                   Q 70 240 120 220
+                   Q 180 200 230 170
+                   Q 290 130 340 180
+                   Q 400 240 450 200
+                   Q 510 150 560 90
+                   Q 620 40  680 110
+                   Q 740 180 800 140
+                   Q 860 110 920 180
+                   Q 970 240 1020 220
+                   Q 1080 200 1140 140
+                   Q 1200 70  1260 130
+                   Q 1320 190 1380 160
+                   Q 1440 130 1500 80
+                   Q 1560 40  1620 120
+                   Q 1680 200 1740 220
+                   Q 1800 240 1860 250
+                   Q 1930 260 2000 250
+                   L 2000 250
+                   Q 1930 260 1860 290
+                   Q 1800 310 1740 350
+                   Q 1680 390 1620 420
+                   Q 1560 450 1500 410
+                   Q 1440 370 1380 390
+                   Q 1320 410 1260 350
+                   Q 1200 300 1140 320
+                   Q 1080 340 1020 380
+                   Q 970  400 920  360
+                   Q 860  330 800  370
+                   Q 740  410 680  380
+                   Q 620  340 560  400
+                   Q 510  430 450  360
+                   Q 400  300 340  340
+                   Q 290  380 230  350
+                   Q 180  330 120  310
+                   Q 70   300 0    290
+                   Z"/>
+            <!-- Centerline curve only (no close) for a bright midline -->
+            <path id="wave-mid"
+                d="M 0 260
+                   Q 100 240 200 225
+                   Q 300 210 400 220
+                   Q 500 235 600 210
+                   Q 700 180 800 220
+                   Q 900 250 1000 240
+                   Q 1100 225 1200 200
+                   Q 1300 180 1400 210
+                   Q 1500 240 1600 240
+                   Q 1700 240 1800 250
+                   Q 1900 258 2000 260"/>
+        </defs>
+        <g class="wave-layer wave-back">
+            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow)" opacity="0.9"/>
+            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow)" opacity="0.9" transform="translate(2000,0)"/>
+        </g>
+        <g class="wave-layer wave-mid">
+            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow-tight)" opacity="0.75"/>
+            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow-tight)" opacity="0.75" transform="translate(2000,0)"/>
+        </g>
+        <g class="wave-layer wave-line">
+            <use href="#wave-mid" fill="none" stroke="url(#wave-center)" stroke-width="2" opacity="0.9"/>
+            <use href="#wave-mid" fill="none" stroke="url(#wave-center)" stroke-width="2" opacity="0.9" transform="translate(2000,0)"/>
+        </g>
+    </svg>
 
     <div class="container">
         <!-- Top bar: Time and Weather -->
@@ -29,15 +120,28 @@
             </div>
         </header>
 
+        <!-- Idle GIF stage: covers the orb area when assistant has been resting a while -->
+        <div class="idle-gif-stage" id="idle-gif-stage" aria-hidden="true">
+            <img class="idle-gif" id="idle-gif" alt="">
+        </div>
+
         <!-- Main: Assistant orb -->
         <main class="assistant-area">
             <div class="orb-container">
                 <div class="orb" id="orb">
                     <div class="orb-glow"></div>
+                    <div class="orb-halo"></div>
                     <div class="orb-core"></div>
                     <div class="orb-ring ring-1"></div>
                     <div class="orb-ring ring-2"></div>
                     <div class="orb-ring ring-3"></div>
+                    <!-- Thinking-state orbiting dots -->
+                    <div class="think-orbit">
+                        <span class="think-dot"></span>
+                        <span class="think-dot"></span>
+                        <span class="think-dot"></span>
+                        <span class="think-dot"></span>
+                    </div>
                 </div>
                 <!-- Audio bars for speaking animation -->
                 <div class="audio-bars" id="audio-bars">
@@ -52,6 +156,25 @@
             </div>
             <div class="status" id="status">Ready</div>
         </main>
+
+        <!-- Now playing card -->
+        <div class="now-playing" id="now-playing" aria-hidden="true">
+            <div class="np-art" id="np-art">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 18V5l12-2v13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="6" cy="18" r="3" fill="currentColor"/>
+                    <circle cx="18" cy="16" r="3" fill="currentColor"/>
+                </svg>
+            </div>
+            <div class="np-info">
+                <div class="np-label">Now playing</div>
+                <div class="np-title" id="np-title"></div>
+                <div class="np-channel" id="np-channel"></div>
+            </div>
+            <div class="np-eq" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+            </div>
+        </div>
 
         <!-- Transcript display -->
         <div class="transcript">

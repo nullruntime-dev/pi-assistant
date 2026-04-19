@@ -26,7 +26,7 @@ faster-whisper>=1.0.0
 piper-tts>=1.2.0
 
 # AI Agent
-google-generativeai>=0.8.0
+google-genai>=0.3.0
 
 # Music playback
 yt-dlp>=2024.0.0

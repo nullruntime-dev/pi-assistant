@@ -70,6 +70,33 @@ If `scripts/pi-assistant.service` changed in the pull, also run the **Reload** s
 
 Re-running `./install.sh` is idempotent and performs the full upgrade path (deps, models, service, kiosk).
 
+### Kiosk (Chromium fullscreen)
+
+The kiosk is a plain Chromium autostart (`~/.config/autostart/kiosk.desktop` → `scripts/kiosk.sh`), not a systemd service.
+
+**Frontend changes auto-reload on backend restart.** The backend mints a new `SERVER_ID` each start and pushes it over the WebSocket; the client reloads when it sees a new id. Static assets also ship with `Cache-Control: no-store`, so no stale JS/CSS. So after editing anything under `frontend/`:
+
+```bash
+systemctl --user restart pi-assistant
+```
+
+Manual kiosk controls (for cases where the WS auto-reload doesn't fire — e.g. the page hasn't connected yet, or you changed `kiosk.sh` itself):
+
+```bash
+# Soft refresh (focus the Pi display, then):
+#   Ctrl+Shift+R
+
+# Restart the kiosk process entirely:
+pkill -f chromium
+~/pi-assistant/scripts/kiosk.sh &
+
+# Stop the kiosk (e.g. while debugging with a normal browser):
+pkill -f chromium
+
+# Start it manually (won't auto-relaunch until next login otherwise):
+~/pi-assistant/scripts/kiosk.sh &
+```
+
 ### Run in the foreground (debugging)
 
 Stop the service first so it doesn't fight for the mic / port:

@@ -1,6 +1,7 @@
 from pathlib import Path
 import urllib.request
 
+import numpy as np
 import sounddevice as sd
 
 
@@ -31,9 +32,11 @@ PIPER_MODELS = {
 class TextToSpeech:
     """Convert text to speech using Piper TTS."""
 
-    def __init__(self, voice: str = "amy"):
+    def __init__(self, voice: str = "amy", length_scale: float = 0.9):
         self.voice_name = voice if voice in PIPER_MODELS else "amy"
+        self.length_scale = length_scale
         self._voice = None
+        self._syn_config = None
         self._model_dir = Path.home() / ".cache" / "piper-voices"
         self._model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -56,11 +59,12 @@ class TextToSpeech:
 
     def _get_voice(self):
         if self._voice is None:
-            from piper import PiperVoice
+            from piper import PiperVoice, SynthesisConfig
 
             model_path, config_path = self._download_model()
             self._voice = PiperVoice.load(str(model_path), str(config_path), use_cuda=False)
-            print(f"Piper TTS ready: {self.voice_name}")
+            self._syn_config = SynthesisConfig(length_scale=self.length_scale)
+            print(f"Piper TTS ready: {self.voice_name} (length_scale={self.length_scale})")
 
         return self._voice
 
@@ -74,6 +78,18 @@ class TextToSpeech:
         if not text:
             return
         voice = self._get_voice()
-        for chunk in voice.synthesize(text):
-            sd.play(chunk.audio_float_array, chunk.sample_rate)
-            sd.wait()
+
+        # Collect all chunks for this sentence, then play once — avoids the
+        # audible gap between chunks that sd.play/sd.wait in a loop produces.
+        parts = []
+        sample_rate = None
+        for chunk in voice.synthesize(text, syn_config=self._syn_config):
+            parts.append(chunk.audio_float_array)
+            sample_rate = chunk.sample_rate
+
+        if not parts:
+            return
+
+        audio = parts[0] if len(parts) == 1 else np.concatenate(parts)
+        sd.play(audio, sample_rate)
+        sd.wait()

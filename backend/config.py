@@ -21,9 +21,11 @@ class Settings(BaseSettings):
 
     # TTS
     tts_voice: str = "amy"
+    # Piper speech rate — lower is faster. 1.0 is model default, 0.9 is a snappier feel.
+    tts_length_scale: float = 0.8
 
-    # STT
-    stt_model_size: str = "base"
+    # STT — tiny.en is ~3x faster than base on Pi 5 and plenty accurate for commands.
+    stt_model_size: str = "tiny.en"
 
     # LLM
     llm_model: str = "gemini-2.5-flash-lite"
