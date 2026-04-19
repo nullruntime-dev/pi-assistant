@@ -151,12 +151,13 @@ class PiAssistant {
     updateClock() {
         const now = new Date();
 
-        // Time
-        const hours = now.getHours().toString().padStart(2, '0');
+        let hours24 = now.getHours();
+        const ampm = hours24 >= 12 ? 'PM' : 'AM';
+        let hours = hours24 % 12;
+        if (hours === 0) hours = 12;
         const minutes = now.getMinutes().toString().padStart(2, '0');
-        this.elements.time.textContent = `${hours}:${minutes}`;
+        this.elements.time.innerHTML = `${hours}<span class="colon">:</span>${minutes}<span class="ampm">${ampm}</span>`;
 
-        // Date
         const options = { weekday: 'long', month: 'long', day: 'numeric' };
         this.elements.date.textContent = now.toLocaleDateString('en-US', options);
     }

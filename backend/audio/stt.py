@@ -35,12 +35,14 @@ class SpeechToText:
         if audio.dtype == np.int16:
             audio = audio.astype(np.float32) / 32768.0
 
-        # Transcribe
+        # Transcribe (beam_size=1 uses greedy decoding — much faster on CPU)
         segments, info = self.model.transcribe(
             audio,
             language="en",
-            beam_size=5,
-            vad_filter=True,  # Filter out silence
+            beam_size=1,
+            best_of=1,
+            vad_filter=True,
+            condition_on_previous_text=False,
         )
 
         # Combine segments

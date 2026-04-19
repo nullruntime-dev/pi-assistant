@@ -1,9 +1,6 @@
-import tempfile
 from pathlib import Path
 import urllib.request
-import tarfile
 
-import numpy as np
 import sounddevice as sd
 
 
@@ -16,28 +13,32 @@ PIPER_MODELS = {
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx",
         "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json",
     },
+    "hfc_female": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx",
+        "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json",
+    },
+    "libritts_r": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts_r/medium/en_US-libritts_r-medium.onnx",
+        "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts_r/medium/en_US-libritts_r-medium.onnx.json",
+    },
+    "ryan_high": {
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx",
+        "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json",
+    },
 }
 
 
 class TextToSpeech:
     """Convert text to speech using Piper TTS."""
 
-    def __init__(self, voice: str = "lessac"):
-        """
-        Initialize Piper TTS.
-
-        Args:
-            voice: Voice name (lessac, amy)
-        """
-        self.voice_name = voice
+    def __init__(self, voice: str = "amy"):
+        self.voice_name = voice if voice in PIPER_MODELS else "amy"
         self._voice = None
         self._model_dir = Path.home() / ".cache" / "piper-voices"
         self._model_dir.mkdir(parents=True, exist_ok=True)
 
     def _download_model(self):
-        """Download voice model if not present."""
-        model_info = PIPER_MODELS.get(self.voice_name, PIPER_MODELS["lessac"])
-
+        model_info = PIPER_MODELS[self.voice_name]
         model_name = model_info["url"].split("/")[-1]
         model_path = self._model_dir / model_name
         config_path = self._model_dir / f"{model_name}.json"
@@ -63,11 +64,16 @@ class TextToSpeech:
 
         return self._voice
 
-    def speak(self, text: str):
-        """Synthesize and play audio directly."""
-        voice = self._get_voice()
+    def warmup(self):
+        """Pre-load the voice model so first speech isn't delayed."""
+        self._get_voice()
 
-        # Synthesize - returns AudioChunk per sentence
+    def speak(self, text: str):
+        """Synthesize full text and play. Blocks until done."""
+        text = text.strip()
+        if not text:
+            return
+        voice = self._get_voice()
         for chunk in voice.synthesize(text):
             sd.play(chunk.audio_float_array, chunk.sample_rate)
             sd.wait()
