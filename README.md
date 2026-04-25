@@ -2,7 +2,35 @@
 
 Voice assistant for Raspberry Pi. Wake word → STT → LLM → TTS.
 
-Quick start: `./install.sh`, edit `.env` with your `GOOGLE_API_KEY`, then reboot.
+Targets the **Raspberry Pi 5 + official 7" touchscreen (800×480)**. The dashboard is laid out for that resolution; on a desktop browser it just shows a wider version of the same panels.
+
+Quick start:
+
+```bash
+./install.sh                                # idempotent — also the upgrade path
+nano .env                                   # set GOOGLE_API_KEY (and optionally WEATHER_LAT/LON)
+sudo reboot
+```
+
+## Audio prerequisites (PipeWire)
+
+The backend writes audio through ALSA → PipeWire. PipeWire on a fresh Bookworm Pi ships with the daemon enabled but the **session manager** (`wireplumber`) and the **PulseAudio compatibility shim** (`pipewire-pulse`) are not. Without them, PipeWire has zero real sinks and TTS gets routed to `auto_null` — i.e. silence.
+
+Enable all three once per machine (no sudo):
+
+```bash
+systemctl --user enable --now pipewire pipewire-pulse wireplumber
+```
+
+Verify a real sink exists (not `auto_null`):
+
+```bash
+pactl list short sinks
+# good:  74  bluez_output.XX_XX_XX_XX_XX_XX.1   PipeWire   ...
+# bad:   0   auto_null                          module-null-sink.c   ...
+```
+
+The `pi-assistant.service` unit declares `After=` and `Wants=` on these three units, so once they're enabled, the backend will always start after they're ready.
 
 ## Operations
 
@@ -30,6 +58,23 @@ systemctl --user restart pi-assistant    # stop + start in one step
 ```
 
 Use `restart` after changing `.env`, Python code, or any file under `backend/`. The process is long-lived, so code changes do not hot-reload.
+
+### Hot reload (the one-liner)
+
+There is no file-watcher. **One command reloads everything for both backend and frontend changes:**
+
+```bash
+systemctl --user restart pi-assistant
+```
+
+What that does:
+
+- Backend code under `backend/` is re-imported (the process is replaced).
+- The new process mints a fresh `SERVER_ID` and pushes it to all open WebSocket clients on connect — the kiosk JS sees the id changed and calls `window.location.reload()`. So **frontend changes under `frontend/` show up automatically** without touching Chromium.
+- Static files are served with `Cache-Control: no-store`, so the browser never returns stale CSS/JS.
+- `.env` is re-read by systemd via `EnvironmentFile=`, so changes there take effect on restart too.
+
+If you want to do a full kill from a fresh terminal (e.g. SSH session) without waiting for the WS reload, see the **Kiosk** section below for the manual Chromium controls.
 
 ### Reload the service definition
 
@@ -115,3 +160,58 @@ systemctl --user disable --now pi-assistant
 rm ~/.config/systemd/user/pi-assistant.service
 systemctl --user daemon-reload
 ```
+
+## Configuration (`.env`)
+
+All settings live in `~/pi-assistant/.env` (loaded by systemd via `EnvironmentFile=`). Restart the service after editing.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GOOGLE_API_KEY` | _required_ | Gemini API key. |
+| `LLM_MODEL` | `gemini-2.5-flash` | Any Gemini chat model id. |
+| `WAKE_WORD` | `hey_jarvis` | Any pretrained openWakeWord model name. |
+| `WAKE_WORD_THRESHOLD` | `0.6` | Raise (e.g. `0.7`) to reduce false wakes. |
+| `WAKE_WORD_CONSECUTIVE_FRAMES` | `2` | Frames over threshold required to fire. |
+| `STT_MODEL_SIZE` | `tiny.en` | `tiny.en` / `base.en` / `small.en` (CPU cost rises fast). |
+| `TTS_VOICE` | `amy` | Piper voice — `amy`, `lessac`, `hfc_female`, `libritts_r`, `ryan_high`. |
+| `TTS_LENGTH_SCALE` | `0.8` | <1 = faster speech, >1 = slower. |
+| `WEATHER_LAT` | `40.7128` (NYC) | Latitude for the dashboard weather card. |
+| `WEATHER_LON` | `-74.0060` (NYC) | Longitude. Open-Meteo, no API key needed. |
+| `HOST` / `PORT` | `0.0.0.0` / `9091` | Where the FastAPI server binds. |
+
+### Tuning the listen behaviour
+
+If Jarvis cuts you off mid-sentence, or won't stop listening when the TV is on, the relevant knobs are constants near the top of `_listen_and_transcribe` in `backend/audio/pipeline.py`:
+
+| Constant | Default | Effect of raising it |
+| --- | --- | --- |
+| `max_silence` | `14` (~0.9s) | Longer mid-sentence pauses tolerated before "you're done". |
+| `max_duration` | `235` (~15s) | Longer hard cap for a single utterance. |
+| `silence_rms = max(0.018, floor × 3.0)` | — | Higher → only louder/closer speech registers. The `× 3.0` multiplier is what rejects background TV; bump to `4.0` if a TV still hijacks the mic. |
+
+The threshold is **adaptive**: the pipeline keeps a rolling 12.8s window of mic RMS and uses the 25th-percentile as the room's noise floor each time it starts listening. So a quiet room and a TV-on room both get a sensible threshold without you tweaking anything. Watch a fresh value print on every wake:
+
+```bash
+journalctl --user -u pi-assistant -f | grep '\[vad\]'
+# [vad] ambient_floor=0.0061 silence_rms=0.0183     # quiet room
+# [vad] ambient_floor=0.0240 silence_rms=0.0720     # TV in background
+```
+
+## The dashboard
+
+What's on the screen, top-to-bottom:
+
+- **Header** — large clock (HH:MM), date, and current weather (temp in °F + condition). Bluetooth toggle and state pill on the right.
+- **Hero row** — live mic waveform on the left; wake-word ring + confidence on the right.
+- **Metrics row** — STT latency, TTS latency, CPU %, SoC temperature.
+- **Pipeline strip** — per-stage timing for the last turn (wake → STT → intent → TTS) plus the end-to-end number.
+- **Recent commands** — scrollable history of recent transcripts.
+
+While the assistant is non-idle, a **Siri-style glowing border** runs around the screen edge:
+
+- Listening — cyan / indigo / violet
+- Thinking — yellow / amber / orange
+- Speaking — pink / violet / cyan
+- A brief brighter pulse fires the moment the wake word is detected.
+
+The colors are CSS variables in `frontend/css/styles.css` (`body[data-state="..."]`) — change those four hex values per state to retheme.
