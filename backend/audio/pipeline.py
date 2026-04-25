@@ -1,11 +1,39 @@
 import asyncio
 import collections
 import queue
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import sounddevice as sd
+
+
+# Said by the user to abort the current turn — no LLM call, no follow-up,
+# kill any playing music, and drop straight back to wake-word mode. Matched
+# against the WHOLE transcript (lowercased, stripped of trailing punctuation),
+# capped at ~5 words so longer LLM-worthy queries that happen to contain
+# "stop" still fall through (e.g. "play Stop by the Spice Girls").
+_DISMISS_RE = re.compile(
+    r"^(?:"
+    r"stop\b.*"                                   # stop / stop it / stop the music / stop talking
+    r"|(?:quit|exit|cancel|enough)\b.*"           # quit / cancel that / enough already
+    r"|(?:never\s*mind|forget\s+it)\b.*"
+    r"|shut\s+up\b.*|be\s+quiet\b.*"
+    r"|(?:leave\s+me\s+alone|go\s+away)\b.*"
+    r"|fuck\s+(?:off|you)\b.*|piss\s+off\b.*"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _is_dismiss(text: str) -> bool:
+    if not text:
+        return False
+    cleaned = text.strip().rstrip(".!?,").strip().lower()
+    if not cleaned or len(cleaned.split()) > 5:
+        return False
+    return bool(_DISMISS_RE.match(cleaned))
 
 if TYPE_CHECKING:
     from backend.main import AssistantState
@@ -162,6 +190,16 @@ class AudioPipeline:
             while self.running:
                 text = await self._listen_and_transcribe(is_follow_up)
                 if text is None:
+                    break
+
+                # User dismissed the assistant — kill music, skip the LLM,
+                # and exit the session. Works in both initial and follow-up
+                # turns.
+                if _is_dismiss(text):
+                    print(f"[dismiss] ending session: {text!r}")
+                    if music_player.is_playing():
+                        music_player.stop()
+                    had_music_before = False  # don't unduck a stopped track
                     break
 
                 # In follow-up mode, gate on whether the transcript is plausibly
