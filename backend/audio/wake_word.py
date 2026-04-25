@@ -16,6 +16,7 @@ class WakeWordDetector:
         self.wake_word = wake_word
         self.consecutive_frames = max(1, consecutive_frames)
         self._streak = 0
+        self.last_score = 0.0
 
         model_paths = openwakeword.get_pretrained_model_paths()
         matching = [p for p in model_paths if wake_word in p]
@@ -50,6 +51,7 @@ class WakeWordDetector:
             if score > best_score:
                 best_score = score
 
+        self.last_score = float(best_score)
         if best_score > self.threshold:
             self._streak += 1
             if self._streak >= self.consecutive_frames:
@@ -65,3 +67,4 @@ class WakeWordDetector:
         """Reset internal state between activations."""
         self.model.reset()
         self._streak = 0
+

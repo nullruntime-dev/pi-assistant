@@ -30,3 +30,7 @@ google-genai>=0.3.0
 
 # Music playback
 yt-dlp>=2024.0.0
+
+# System metrics (CPU / freq for dashboard)
+psutil>=5.9.0
+

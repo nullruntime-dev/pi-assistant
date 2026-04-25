@@ -12,6 +12,7 @@ from starlette.types import Scope
 
 from backend.config import get_settings
 from backend.services.bluetooth import BluetoothError, bluetooth_service
+from backend.services.metrics import MetricsTracker
 from backend.services.music import music_player
 from backend.services.weather import WeatherService
 
@@ -67,6 +68,7 @@ class AssistantState:
 assistant = AssistantState()
 weather_service = WeatherService()
 audio_pipeline = None  # AudioPipeline instance, set in lifespan if available
+metrics = MetricsTracker(broadcaster=assistant.broadcast)
 
 
 @asynccontextmanager
@@ -75,6 +77,7 @@ async def lifespan(app: FastAPI):
 
     # Startup
     settings = get_settings()
+    metrics.attach_loop(asyncio.get_running_loop())
 
     async def _on_music_change(track):
         await assistant.broadcast({"type": "music", "track": track})
@@ -85,15 +88,20 @@ async def lifespan(app: FastAPI):
         audio_pipeline = AudioPipeline(
             assistant=assistant,
             settings=settings,
+            metrics=metrics,
         )
         # Start audio pipeline in background
         asyncio.create_task(audio_pipeline.run())
     else:
         print("Running in UI-only mode (no audio)")
 
+    # System stats poller (CPU / temp / freq) — broadcasts every 2s.
+    stats_task = asyncio.create_task(metrics.system_stats_loop(interval=2.0))
+
     yield
 
     # Shutdown
+    stats_task.cancel()
     if audio_pipeline:
         await audio_pipeline.stop()
 
@@ -125,6 +133,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.send_json({"type": "state", "state": assistant.state})
     # Send current music (if anything is playing) so a fresh page sees it.
     await websocket.send_json({"type": "music", "track": music_player.current_track})
+    # Send a metrics snapshot so the dashboard fills in immediately.
+    await websocket.send_json(metrics.snapshot())
 
     try:
         while True:
@@ -188,3 +198,4 @@ if __name__ == "__main__":
 
     settings = get_settings()
     uvicorn.run(app, host=settings.host, port=settings.port)
+

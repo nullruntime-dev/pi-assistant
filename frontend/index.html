@@ -3,210 +3,170 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pi Assistant</title>
+    <title>Pi Assistant · Voice pipeline</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Soundwave — audio-visualizer style, blue→pink centered behind the orb -->
-    <svg class="soundwaves" viewBox="0 0 2000 500" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-            <linearGradient id="wave-fill" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stop-color="#1e40af" stop-opacity="0"/>
-                <stop offset="0.12" stop-color="#3b82f6"/>
-                <stop offset="0.35" stop-color="#60a5fa"/>
-                <stop offset="0.5" stop-color="#e9d5ff"/>
-                <stop offset="0.65" stop-color="#f472b6"/>
-                <stop offset="0.88" stop-color="#ec4899"/>
-                <stop offset="1" stop-color="#be185d" stop-opacity="0"/>
-            </linearGradient>
-            <linearGradient id="wave-center" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stop-color="#60a5fa" stop-opacity="0"/>
-                <stop offset="0.1" stop-color="#60a5fa"/>
-                <stop offset="0.5" stop-color="#ffffff"/>
-                <stop offset="0.9" stop-color="#f472b6"/>
-                <stop offset="1" stop-color="#ec4899" stop-opacity="0"/>
-            </linearGradient>
-            <!-- Soft blurry glow path behind everything -->
-            <filter id="wave-glow" x="-10%" y="-40%" width="120%" height="180%">
-                <feGaussianBlur stdDeviation="18"/>
-            </filter>
-            <!-- Tighter glow for mid layer -->
-            <filter id="wave-glow-tight" x="-5%" y="-20%" width="110%" height="140%">
-                <feGaussianBlur stdDeviation="6"/>
-            </filter>
-            <!-- Varied-amplitude wave silhouette (roughly the shape in the reference) -->
-            <path id="wave-body"
-                d="M 0 250
-                   Q 70 240 120 220
-                   Q 180 200 230 170
-                   Q 290 130 340 180
-                   Q 400 240 450 200
-                   Q 510 150 560 90
-                   Q 620 40  680 110
-                   Q 740 180 800 140
-                   Q 860 110 920 180
-                   Q 970 240 1020 220
-                   Q 1080 200 1140 140
-                   Q 1200 70  1260 130
-                   Q 1320 190 1380 160
-                   Q 1440 130 1500 80
-                   Q 1560 40  1620 120
-                   Q 1680 200 1740 220
-                   Q 1800 240 1860 250
-                   Q 1930 260 2000 250
-                   L 2000 250
-                   Q 1930 260 1860 290
-                   Q 1800 310 1740 350
-                   Q 1680 390 1620 420
-                   Q 1560 450 1500 410
-                   Q 1440 370 1380 390
-                   Q 1320 410 1260 350
-                   Q 1200 300 1140 320
-                   Q 1080 340 1020 380
-                   Q 970  400 920  360
-                   Q 860  330 800  370
-                   Q 740  410 680  380
-                   Q 620  340 560  400
-                   Q 510  430 450  360
-                   Q 400  300 340  340
-                   Q 290  380 230  350
-                   Q 180  330 120  310
-                   Q 70   300 0    290
-                   Z"/>
-            <!-- Centerline curve only (no close) for a bright midline -->
-            <path id="wave-mid"
-                d="M 0 260
-                   Q 100 240 200 225
-                   Q 300 210 400 220
-                   Q 500 235 600 210
-                   Q 700 180 800 220
-                   Q 900 250 1000 240
-                   Q 1100 225 1200 200
-                   Q 1300 180 1400 210
-                   Q 1500 240 1600 240
-                   Q 1700 240 1800 250
-                   Q 1900 258 2000 260"/>
-        </defs>
-        <g class="wave-layer wave-back">
-            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow)" opacity="0.9"/>
-            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow)" opacity="0.9" transform="translate(2000,0)"/>
-        </g>
-        <g class="wave-layer wave-mid">
-            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow-tight)" opacity="0.75"/>
-            <use href="#wave-body" fill="url(#wave-fill)" filter="url(#wave-glow-tight)" opacity="0.75" transform="translate(2000,0)"/>
-        </g>
-        <g class="wave-layer wave-line">
-            <use href="#wave-mid" fill="none" stroke="url(#wave-center)" stroke-width="2" opacity="0.9"/>
-            <use href="#wave-mid" fill="none" stroke="url(#wave-center)" stroke-width="2" opacity="0.9" transform="translate(2000,0)"/>
-        </g>
-    </svg>
-
-    <div class="container">
-        <!-- Top bar: Time and Weather -->
-        <header class="top-bar">
-            <div class="datetime">
-                <div class="time" id="time">00:00</div>
-                <div class="date" id="date">Loading...</div>
+    <div class="ai-glow" aria-hidden="true"></div>
+    <main class="dash">
+        <header class="dash-header">
+            <div class="now-block">
+                <div class="now-time" id="now-time">--:--</div>
+                <div class="now-temp" id="now-temp">—°F</div>
+                <div class="now-meta">
+                    <div class="now-date" id="now-date">—</div>
+                    <div class="now-desc" id="now-desc">—</div>
+                </div>
             </div>
-            <div class="top-right">
-                <button class="bt-button" id="bt-button" type="button" aria-label="Bluetooth devices" title="Bluetooth">
-                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                        <path d="M7 7l10 10-5 5V2l5 5L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                    <span class="bt-dot" id="bt-dot" aria-hidden="true"></span>
+            <div class="dash-actions">
+                <button type="button" class="btn btn-primary" id="bt-toggle" aria-expanded="false" aria-controls="bt-panel">
+                    <span class="btn-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M7 7l10 10-5 5V2l5 5L7 17"/>
+                        </svg>
+                    </span>
+                    <span>Bluetooth</span>
+                    <span class="btn-badge" id="bt-badge" hidden></span>
                 </button>
-                <div class="weather" id="weather">
-                    <div class="weather-icon" id="weather-icon">☀️</div>
-                    <div class="weather-info">
-                        <div class="temp" id="temp">--°</div>
-                        <div class="desc" id="weather-desc">Loading...</div>
-                    </div>
+                <div class="status-pill" id="status-pill" data-state="idle">
+                    <span class="status-dot"></span>
+                    <span class="status-text" id="status-text">Idle</span>
                 </div>
             </div>
         </header>
 
-        <!-- Bluetooth panel -->
-        <div class="bt-panel" id="bt-panel" aria-hidden="true">
-            <div class="bt-panel-header">
-                <div class="bt-panel-title">Bluetooth</div>
-                <div class="bt-panel-actions">
-                    <button class="bt-scan" id="bt-scan" type="button">Scan</button>
-                    <button class="bt-close" id="bt-close" type="button" aria-label="Close">×</button>
+        <section class="card bt-card" id="bt-panel" hidden>
+            <div class="bt-head">
+                <div>
+                    <div class="card-label">BLUETOOTH AUDIO</div>
+                    <div class="bt-sub" id="bt-sub">Pair a speaker or headset to route assistant audio.</div>
+                </div>
+                <div class="bt-head-actions">
+                    <button type="button" class="btn btn-ghost" id="bt-refresh" title="Refresh device list">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 12a9 9 0 1 1-3-6.7"/>
+                            <polyline points="21 3 21 9 15 9"/>
+                        </svg>
+                        <span>Refresh</span>
+                    </button>
+                    <button type="button" class="btn btn-primary" id="bt-scan">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="2"/>
+                                <path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49"/>
+                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/>
+                            </svg>
+                        </span>
+                        <span id="bt-scan-label">Scan for devices</span>
+                    </button>
                 </div>
             </div>
-            <div class="bt-panel-status" id="bt-panel-status"></div>
-            <ul class="bt-devices" id="bt-devices"></ul>
-        </div>
-        <div class="bt-backdrop" id="bt-backdrop" aria-hidden="true"></div>
+            <ul class="bt-list" id="bt-list">
+                <li class="bt-empty">No devices yet. Tap “Scan for devices” to discover nearby speakers and headsets.</li>
+            </ul>
+            <div class="bt-error" id="bt-error" hidden></div>
+        </section>
 
-        <!-- Idle GIF stage: covers the orb area when assistant has been resting a while -->
-        <div class="idle-gif-stage" id="idle-gif-stage" aria-hidden="true">
-            <img class="idle-gif" id="idle-gif" alt="">
-        </div>
+        <section class="row hero">
+            <article class="card waveform-card">
+                <div class="card-label">WAVEFORM · LIVE</div>
+                <div class="waveform" id="waveform">
+                    <!-- bars injected by JS -->
+                </div>
+                <div class="waveform-meta">
+                    <div class="db" id="mic-db">— dB</div>
+                    <div class="utterance" id="utterance"></div>
+                    <div class="duration" id="duration"></div>
+                </div>
+            </article>
 
-        <!-- Main: Assistant orb -->
-        <main class="assistant-area">
-            <div class="orb-container">
-                <div class="orb" id="orb">
-                    <div class="orb-glow"></div>
-                    <div class="orb-halo"></div>
-                    <div class="orb-core"></div>
-                    <div class="orb-ring ring-1"></div>
-                    <div class="orb-ring ring-2"></div>
-                    <div class="orb-ring ring-3"></div>
-                    <!-- Thinking-state orbiting dots -->
-                    <div class="think-orbit">
-                        <span class="think-dot"></span>
-                        <span class="think-dot"></span>
-                        <span class="think-dot"></span>
-                        <span class="think-dot"></span>
+            <article class="card wake-card">
+                <div class="wake-ring" id="wake-ring">
+                    <svg viewBox="0 0 200 200" aria-hidden="true">
+                        <circle class="wake-track" cx="100" cy="100" r="84" />
+                        <circle class="wake-arc" id="wake-arc" cx="100" cy="100" r="84"
+                                stroke-dasharray="528" stroke-dashoffset="528"
+                                transform="rotate(-90 100 100)" />
+                    </svg>
+                    <div class="wake-disc">
+                        <div class="wake-label-top">WAKE WORD</div>
+                        <div class="wake-label-bottom" id="wake-state">IDLE</div>
                     </div>
                 </div>
-                <!-- Audio bars for speaking animation -->
-                <div class="audio-bars" id="audio-bars">
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
+                <div class="wake-meta">
+                    <span>openWakeWord</span>
+                    <span class="sep">·</span>
+                    <span id="wake-conf">0.00 conf</span>
+                </div>
+            </article>
+        </section>
+
+        <section class="row metrics">
+            <article class="card metric">
+                <div class="metric-label">STT latency</div>
+                <div class="metric-value"><span class="num" id="stt-ms">—</span><span class="unit">ms</span></div>
+                <div class="metric-foot" id="stt-foot">awaiting first transcript</div>
+            </article>
+
+            <article class="card metric">
+                <div class="metric-label">TTS latency</div>
+                <div class="metric-value"><span class="num" id="tts-ms">—</span><span class="unit">ms</span></div>
+                <div class="metric-foot" id="tts-foot">piper</div>
+            </article>
+
+            <article class="card metric">
+                <div class="metric-label">CPU</div>
+                <div class="metric-value"><span class="num" id="cpu-pct">—</span><span class="unit">%</span></div>
+                <div class="metric-foot" id="cpu-foot">— cores</div>
+            </article>
+
+            <article class="card metric">
+                <div class="metric-label">Temp</div>
+                <div class="metric-value"><span class="num" id="temp-c">—</span><span class="unit">°C</span></div>
+                <div class="metric-foot" id="temp-foot">—</div>
+            </article>
+        </section>
+
+        <section class="card pipeline-card">
+            <div class="pipeline-head">
+                <div class="card-label">PIPELINE</div>
+                <div class="e2e">end-to-end <span class="sep">·</span> <span id="e2e">— s</span></div>
+            </div>
+            <div class="pipeline">
+                <div class="pp-step pp-wake">
+                    <div class="pp-name">WAKE</div>
+                    <div class="pp-time" id="pp-wake">— ms</div>
+                </div>
+                <div class="pp-arrow">→</div>
+                <div class="pp-step pp-stt">
+                    <div class="pp-name">STT <span class="pp-meta" id="pp-stt-engine">whisper-tiny.en</span></div>
+                    <div class="pp-time" id="pp-stt">— ms</div>
+                </div>
+                <div class="pp-arrow">→</div>
+                <div class="pp-step pp-intent">
+                    <div class="pp-name">INTENT</div>
+                    <div class="pp-time" id="pp-intent">— ms</div>
+                </div>
+                <div class="pp-arrow">→</div>
+                <div class="pp-step pp-tts">
+                    <div class="pp-name">TTS <span class="pp-meta" id="pp-tts-engine">piper</span></div>
+                    <div class="pp-time" id="pp-tts">— ms</div>
                 </div>
             </div>
-            <div class="status" id="status">Ready</div>
-        </main>
+        </section>
 
-        <!-- Now playing card -->
-        <div class="now-playing" id="now-playing" aria-hidden="true">
-            <div class="np-art" id="np-art">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9 18V5l12-2v13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <circle cx="6" cy="18" r="3" fill="currentColor"/>
-                    <circle cx="18" cy="16" r="3" fill="currentColor"/>
-                </svg>
-            </div>
-            <div class="np-info">
-                <div class="np-label">Now playing</div>
-                <div class="np-title" id="np-title"></div>
-                <div class="np-channel" id="np-channel"></div>
-            </div>
-            <div class="np-eq" aria-hidden="true">
-                <span></span><span></span><span></span><span></span>
-            </div>
-        </div>
-
-        <!-- Transcript display -->
-        <div class="transcript">
-            <div class="transcript-text" id="transcript">
-                <div class="label">You said</div>
-                <div class="content" id="transcript-content"></div>
-            </div>
-        </div>
-    </div>
+        <section class="card recent-card">
+            <div class="card-label">RECENT COMMANDS</div>
+            <ul class="recent-list" id="recent-list">
+                <li class="recent-empty">No commands yet. Say “Hey Jarvis” to begin.</li>
+            </ul>
+        </section>
+    </main>
 
     <script src="/static/js/app.js"></script>
 </body>
 </html>
+

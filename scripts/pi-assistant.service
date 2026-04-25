@@ -1,6 +1,7 @@
 [Unit]
 Description=Pi Assistant Backend
-After=default.target
+After=default.target pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire.service pipewire-pulse.service wireplumber.service
 
 [Service]
 Type=simple

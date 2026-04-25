@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import queue
 import time
 from typing import TYPE_CHECKING, Any
@@ -20,12 +21,19 @@ class AudioPipeline:
     4. Stream agent response -> speak sentence by sentence
     """
 
-    def __init__(self, assistant: "AssistantState", settings: "Settings"):
+    def __init__(self, assistant: "AssistantState", settings: "Settings", metrics: Any = None):
         self.assistant = assistant
         self.settings = settings
+        self.metrics = metrics
         self.running = False
 
         self.audio_queue: queue.Queue = queue.Queue()
+
+        # Rolling RMS samples used to estimate the ambient noise floor so the
+        # silence threshold can adapt to a room with a TV vs a quiet room.
+        # ~200 chunks * 64ms = ~12.8s of recent audio; the lower-percentile is
+        # the floor (loud bursts don't poison it).
+        self._ambient_rms: collections.deque[float] = collections.deque(maxlen=200)
 
         self._wake_word: Any = None
         self._stt: Any = None
@@ -74,6 +82,21 @@ class AudioPipeline:
         if status:
             print(f"Audio status: {status}")
         self.audio_queue.put(indata.copy())
+        try:
+            rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
+            self._ambient_rms.append(rms)
+            if self.metrics is not None:
+                self.metrics.push_mic_rms(rms)
+        except Exception:
+            pass
+
+    def _ambient_floor(self) -> float:
+        """Lower-quartile RMS over the recent rolling window — robust to bursts
+        of speech, so it tracks the actual room floor (TV included)."""
+        if len(self._ambient_rms) < 30:
+            return 0.006
+        samples = sorted(self._ambient_rms)
+        return samples[len(samples) // 4]
 
     def _warmup(self):
         """Pre-load heavy models so the first activation isn't slow."""
@@ -113,6 +136,8 @@ class AudioPipeline:
                         continue
 
                     if self.wake_word.detect(audio_chunk):
+                        if self.metrics is not None:
+                            await self.metrics.on_wake(self.wake_word.last_score)
                         await self._handle_activation()
 
                 except Exception as e:
@@ -172,17 +197,25 @@ class AudioPipeline:
     async def _listen_and_transcribe(self, is_follow_up: bool):
         """Record one utterance and transcribe it. Returns None if no speech."""
         await self.assistant.set_state("listening")
+        if self.metrics is not None:
+            await self.metrics.on_listen_start()
         self._drain_queue()
 
+        # 1024-sample chunks at 16 kHz → ~0.064s/chunk.
         audio_buffer = []
         silence_chunks = 0
         voiced_chunks = 0
-        max_silence = 6         # ~0.4s of trailing silence -> end of utterance
-        max_duration = 120      # ~7.7s max recording
+        max_silence = 14        # ~0.9s of trailing silence -> end of utterance
+        max_duration = 235      # ~15s safety cap (don't hit on normal speech)
         min_voiced = 3          # require at least a bit of actual speech
-        silence_rms = 0.012
-        # Follow-up mode: if no speech starts within ~4s, drop back to wake word.
-        wait_for_speech_budget = 60 if is_follow_up else max_duration
+        # Adapt the speech/silence threshold to the current room floor (TV,
+        # fan, AC) so distant background speech doesn't keep the recorder
+        # open forever. Floor × 3 keeps close-mic speech well above ambient
+        # while a hard min handles a dead-quiet room.
+        silence_rms = max(0.018, self._ambient_floor() * 3.0)
+        print(f"[vad] ambient_floor={self._ambient_floor():.4f} silence_rms={silence_rms:.4f}")
+        # Follow-up mode: if no speech starts within ~6s, drop back to wake word.
+        wait_for_speech_budget = 95 if is_follow_up else max_duration
         pre_speech_silence = 0
 
         for _ in range(max_duration):
@@ -228,6 +261,8 @@ class AudioPipeline:
             )
             print(f"[timing] STT {time.monotonic() - t_stt:.2f}s -> {text!r}")
             await self.assistant.send_transcript(text, "You said")
+            if self.metrics is not None and text and text.strip():
+                await self.metrics.on_transcript_done(text.strip(), t_stt)
         except Exception as e:
             print(f"STT error: {e}")
             await self._speak_error("Sorry, I couldn't understand that.")
@@ -242,6 +277,8 @@ class AudioPipeline:
         full_response: list[str] = []
         spoken_any = False
         t_agent = time.monotonic()
+        if self.metrics is not None:
+            await self.metrics.on_agent_start()
 
         # TTS playback queue — synthesize happens in a thread, keeps main loop free
         tts_queue: asyncio.Queue = asyncio.Queue()
@@ -253,6 +290,8 @@ class AudioPipeline:
                     continue
                 if not full_response:
                     print(f"[timing] agent first sentence {time.monotonic() - t_agent:.2f}s")
+                    if self.metrics is not None:
+                        await self.metrics.on_intent_first_token()
                 full_response.append(sentence)
 
                 if not spoken_any:
@@ -280,13 +319,20 @@ class AudioPipeline:
             await self.assistant.send_transcript(joined, "Assistant")
             print(f"Assistant: {joined}")
 
+        if self.metrics is not None:
+            await self.metrics.on_utterance_complete()
+
     async def _speaker_worker(self, q: asyncio.Queue):
         """Pull sentences off the queue and speak them in order."""
+        first = True
         while True:
             sentence = await q.get()
             if sentence is None:
                 return
             try:
+                if first and self.metrics is not None:
+                    await self.metrics.on_tts_first_audio()
+                    first = False
                 await asyncio.to_thread(self.tts.speak, sentence)
             except Exception as e:
                 print(f"TTS error: {e}")
@@ -310,3 +356,4 @@ class AudioPipeline:
 
     async def stop(self):
         self.running = False
+
