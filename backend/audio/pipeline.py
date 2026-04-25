@@ -177,7 +177,7 @@ class AudioPipeline:
         audio_buffer = []
         silence_chunks = 0
         voiced_chunks = 0
-        max_silence = 10        # ~0.65s of trailing silence -> end of utterance
+        max_silence = 6         # ~0.4s of trailing silence -> end of utterance
         max_duration = 120      # ~7.7s max recording
         min_voiced = 3          # require at least a bit of actual speech
         silence_rms = 0.012

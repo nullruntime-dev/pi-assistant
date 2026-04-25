@@ -1,7 +1,6 @@
 from pathlib import Path
 import urllib.request
 
-import numpy as np
 import sounddevice as sd
 
 
@@ -73,23 +72,26 @@ class TextToSpeech:
         self._get_voice()
 
     def speak(self, text: str):
-        """Synthesize full text and play. Blocks until done."""
+        """Synthesize and play, streaming chunks so audio starts as soon as
+        the first chunk is ready instead of waiting for full synthesis."""
         text = text.strip()
         if not text:
             return
         voice = self._get_voice()
 
-        # Collect all chunks for this sentence, then play once — avoids the
-        # audible gap between chunks that sd.play/sd.wait in a loop produces.
-        parts = []
-        sample_rate = None
-        for chunk in voice.synthesize(text, syn_config=self._syn_config):
-            parts.append(chunk.audio_float_array)
-            sample_rate = chunk.sample_rate
-
-        if not parts:
+        chunk_iter = voice.synthesize(text, syn_config=self._syn_config)
+        try:
+            first = next(chunk_iter)
+        except StopIteration:
             return
 
-        audio = parts[0] if len(parts) == 1 else np.concatenate(parts)
-        sd.play(audio, sample_rate)
-        sd.wait()
+        sample_rate = first.sample_rate
+        stream = sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32")
+        stream.start()
+        try:
+            stream.write(first.audio_float_array)
+            for chunk in chunk_iter:
+                stream.write(chunk.audio_float_array)
+        finally:
+            stream.stop()
+            stream.close()

@@ -4,12 +4,14 @@ import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from starlette.types import Scope
 
 from backend.config import get_settings
+from backend.services.bluetooth import BluetoothError, bluetooth_service
 from backend.services.music import music_player
 from backend.services.weather import WeatherService
 
@@ -141,6 +143,44 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/api/weather")
 async def get_weather():
     return await weather_service.get_current()
+
+
+class MacBody(BaseModel):
+    mac: str
+
+
+@app.get("/api/bluetooth/devices")
+async def bluetooth_devices():
+    try:
+        return {
+            "devices": await bluetooth_service.list_devices(),
+            "scanning": bluetooth_service.is_scanning(),
+        }
+    except BluetoothError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bluetooth/scan")
+async def bluetooth_scan():
+    await bluetooth_service.scan(duration=8.0)
+    return {"scanning": True}
+
+
+@app.post("/api/bluetooth/connect")
+async def bluetooth_connect(body: MacBody):
+    try:
+        return await bluetooth_service.connect(body.mac)
+    except BluetoothError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/bluetooth/disconnect")
+async def bluetooth_disconnect(body: MacBody):
+    try:
+        await bluetooth_service.disconnect(body.mac)
+        return {"mac": body.mac, "connected": False}
+    except BluetoothError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 if __name__ == "__main__":

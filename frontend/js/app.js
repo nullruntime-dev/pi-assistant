@@ -27,7 +27,18 @@ class PiAssistant {
             npArt: document.getElementById('np-art'),
             npTitle: document.getElementById('np-title'),
             npChannel: document.getElementById('np-channel'),
+            btButton: document.getElementById('bt-button'),
+            btPanel: document.getElementById('bt-panel'),
+            btBackdrop: document.getElementById('bt-backdrop'),
+            btDevices: document.getElementById('bt-devices'),
+            btScan: document.getElementById('bt-scan'),
+            btClose: document.getElementById('bt-close'),
+            btStatus: document.getElementById('bt-panel-status'),
         };
+
+        this.btOpen = false;
+        this.btRefreshTimer = null;
+        this.btBusyMacs = new Set();
         // stars/particles removed — design now uses a solid bg + waveform.
 
         // Idle-GIF rotation
@@ -46,9 +57,178 @@ class PiAssistant {
         this.connectWebSocket();
         this.startClock();
         this.fetchWeather();
+        this.initBluetooth();
 
         // Refresh weather every 10 minutes
         setInterval(() => this.fetchWeather(), 10 * 60 * 1000);
+    }
+
+    // ===== Bluetooth =====
+    initBluetooth() {
+        const { btButton, btClose, btBackdrop, btScan } = this.elements;
+        if (!btButton) return;
+        btButton.addEventListener('click', () => this.toggleBtPanel());
+        btClose.addEventListener('click', () => this.closeBtPanel());
+        btBackdrop.addEventListener('click', () => this.closeBtPanel());
+        btScan.addEventListener('click', () => this.btScan());
+        // Poll connection state in the background so the top-bar dot stays accurate.
+        this.refreshBtDevices({ silent: true });
+        setInterval(() => {
+            if (!this.btOpen) this.refreshBtDevices({ silent: true });
+        }, 30000);
+    }
+
+    toggleBtPanel() {
+        if (this.btOpen) this.closeBtPanel();
+        else this.openBtPanel();
+    }
+
+    openBtPanel() {
+        this.btOpen = true;
+        this.elements.btPanel.classList.add('visible');
+        this.elements.btPanel.setAttribute('aria-hidden', 'false');
+        this.elements.btBackdrop.classList.add('visible');
+        this.refreshBtDevices();
+        // While open, keep the list fresh (catches scan discoveries + state changes).
+        this.btRefreshTimer = setInterval(() => this.refreshBtDevices({ silent: true }), 3000);
+    }
+
+    closeBtPanel() {
+        this.btOpen = false;
+        this.elements.btPanel.classList.remove('visible');
+        this.elements.btPanel.setAttribute('aria-hidden', 'true');
+        this.elements.btBackdrop.classList.remove('visible');
+        if (this.btRefreshTimer) {
+            clearInterval(this.btRefreshTimer);
+            this.btRefreshTimer = null;
+        }
+    }
+
+    async refreshBtDevices({ silent = false } = {}) {
+        try {
+            const res = await fetch('/api/bluetooth/devices');
+            if (!res.ok) throw new Error(`status ${res.status}`);
+            const data = await res.json();
+            this.renderBtDevices(data.devices || [], data.scanning);
+            if (!silent) this.setBtStatus('');
+        } catch (e) {
+            if (!silent) this.setBtStatus(`Error loading devices: ${e.message}`, true);
+        }
+    }
+
+    renderBtDevices(devices, scanning) {
+        const list = this.elements.btDevices;
+        const hasConnected = devices.some((d) => d.connected);
+        this.elements.btButton.classList.toggle('connected', hasConnected);
+
+        if (scanning) this.elements.btScan.classList.add('scanning');
+        else this.elements.btScan.classList.remove('scanning');
+        this.elements.btScan.textContent = scanning ? 'Scanning…' : 'Scan';
+
+        if (!devices.length) {
+            list.innerHTML = '<li class="bt-devices-empty">No devices yet. Tap Scan.</li>';
+            return;
+        }
+
+        list.innerHTML = '';
+        for (const d of devices) {
+            const li = document.createElement('li');
+            li.className = 'bt-device' + (d.connected ? ' connected' : '');
+
+            const info = document.createElement('div');
+            info.className = 'bt-device-info';
+            const name = document.createElement('div');
+            name.className = 'bt-device-name';
+            name.textContent = d.name || d.mac;
+            const meta = document.createElement('div');
+            meta.className = 'bt-device-meta';
+            const bits = [d.mac];
+            if (d.connected) bits.push('connected');
+            else if (d.paired) bits.push('paired');
+            meta.textContent = bits.join(' · ');
+            info.appendChild(name);
+            info.appendChild(meta);
+
+            const btn = document.createElement('button');
+            btn.className = 'bt-device-action';
+            btn.type = 'button';
+            btn.textContent = d.connected ? 'Disconnect' : 'Connect';
+            btn.disabled = this.btBusyMacs.has(d.mac);
+            btn.addEventListener('click', () =>
+                d.connected ? this.btDisconnect(d.mac) : this.btConnect(d.mac),
+            );
+
+            li.appendChild(info);
+            li.appendChild(btn);
+            list.appendChild(li);
+        }
+    }
+
+    setBtStatus(text, isError = false) {
+        const el = this.elements.btStatus;
+        el.textContent = text;
+        el.classList.toggle('error', !!isError && !!text);
+    }
+
+    async btScan() {
+        try {
+            this.setBtStatus('Scanning for devices…');
+            const res = await fetch('/api/bluetooth/scan', { method: 'POST' });
+            if (!res.ok) throw new Error(`status ${res.status}`);
+            this.elements.btScan.classList.add('scanning');
+            this.elements.btScan.textContent = 'Scanning…';
+            // Poll more aggressively during the scan window.
+            setTimeout(() => this.refreshBtDevices({ silent: true }), 1500);
+            setTimeout(() => this.refreshBtDevices({ silent: true }), 5000);
+            setTimeout(() => this.refreshBtDevices(), 9000);
+        } catch (e) {
+            this.setBtStatus(`Scan failed: ${e.message}`, true);
+        }
+    }
+
+    async btConnect(mac) {
+        this.btBusyMacs.add(mac);
+        this.setBtStatus(`Connecting to ${mac}…`);
+        this.refreshBtDevices({ silent: true });
+        try {
+            const res = await fetch('/api/bluetooth/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || `status ${res.status}`);
+            const msg = data.default_set
+                ? 'Connected · audio routed'
+                : 'Connected (sink not auto-routed — check wpctl)';
+            this.setBtStatus(msg);
+        } catch (e) {
+            this.setBtStatus(`Connect failed: ${e.message}`, true);
+        } finally {
+            this.btBusyMacs.delete(mac);
+            this.refreshBtDevices({ silent: true });
+        }
+    }
+
+    async btDisconnect(mac) {
+        this.btBusyMacs.add(mac);
+        this.setBtStatus(`Disconnecting ${mac}…`);
+        this.refreshBtDevices({ silent: true });
+        try {
+            const res = await fetch('/api/bluetooth/disconnect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || `status ${res.status}`);
+            this.setBtStatus('Disconnected');
+        } catch (e) {
+            this.setBtStatus(`Disconnect failed: ${e.message}`, true);
+        } finally {
+            this.btBusyMacs.delete(mac);
+            this.refreshBtDevices({ silent: true });
+        }
     }
 
     // ===== WebSocket =====

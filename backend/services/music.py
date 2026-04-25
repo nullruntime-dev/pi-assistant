@@ -1,13 +1,10 @@
 import asyncio
 import json
 import os
-import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 import time
-from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 import yt_dlp
@@ -17,14 +14,6 @@ _NORMAL_VOLUME = 55   # default playback level; low enough that the mic beats it
 _DUCKED_VOLUME = 10   # while the assistant is listening or speaking
 
 OnChange = Callable[[Optional[dict]], Awaitable[None]]
-
-
-def _ytdlp_path() -> str:
-    """Locate a working yt-dlp — prefer the venv's over any outdated system one."""
-    venv_bin = Path(sys.executable).parent / "yt-dlp"
-    if venv_bin.exists():
-        return str(venv_bin)
-    return shutil.which("yt-dlp") or "yt-dlp"
 
 
 def _format_duration(seconds: Optional[float]) -> str:
@@ -111,12 +100,7 @@ class MusicPlayer:
                 self._ducked = False
 
     async def search(self, query: str, limit: int = 1) -> list[dict]:
-        """
-        Search YouTube for videos.
-
-        Returns:
-            List of {title, url, duration, channel}
-        """
+        """Metadata-only search (no stream URL). Useful for listing results."""
         def _search() -> list[dict]:
             opts = {
                 "quiet": True,
@@ -141,33 +125,62 @@ class MusicPlayer:
 
         return await asyncio.to_thread(_search)
 
-    async def play(self, query: str) -> str:
-        """
-        Search and play audio from YouTube.
+    async def _resolve_for_playback(self, query: str) -> Optional[dict]:
+        """Single yt-dlp pass: search + pick the best audio format + return a
+        direct stream URL. Lets mpv skip its own yt-dlp invocation."""
+        def _resolve() -> Optional[dict]:
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "noplaylist": True,
+                "format": "bestaudio[ext=m4a]/bestaudio/best",
+                "default_search": "ytsearch1",
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(query, download=False)
+            entry = info
+            if entry and entry.get("entries"):
+                entries = [e for e in entry["entries"] if e]
+                if not entries:
+                    return None
+                entry = entries[0]
+            if not entry:
+                return None
+            stream_url = entry.get("url")
+            if not stream_url:
+                return None
+            thumbs = entry.get("thumbnails") or []
+            thumbnail = entry.get("thumbnail") or (thumbs[-1].get("url") if thumbs else None)
+            return {
+                "title": entry.get("title", "Unknown"),
+                "channel": entry.get("channel") or entry.get("uploader", "Unknown"),
+                "duration": _format_duration(entry.get("duration")),
+                "thumbnail": thumbnail,
+                "stream_url": stream_url,
+            }
 
-        Returns:
-            Status message
-        """
+        return await asyncio.to_thread(_resolve)
+
+    async def play(self, query: str) -> str:
+        """Search and play audio from YouTube."""
         t0 = time.monotonic()
 
-        # Stop any current playback
         await self._stop_internal(emit=False)
 
-        # Search for video
-        results = await self.search(query, limit=1)
-        t_search = time.monotonic() - t0
-        if not results:
+        try:
+            video = await self._resolve_for_playback(query)
+        except Exception as e:
+            print(f"[music] resolve failed: {e}")
+            return f"Sorry, I couldn't find '{query}' right now."
+
+        if not video:
             return f"No results found for '{query}'"
 
-        video = results[0]
-        url = video["url"]
         title = video["title"]
+        stream_url = video["stream_url"]
+        print(f"[music] resolve took {time.monotonic() - t0:.2f}s -> {title}")
 
-        print(f"[music] search took {t_search:.2f}s -> {title}")
-
-        ytdlp = _ytdlp_path()
-
-        # Play audio using yt-dlp + mpv (audio only)
         self._ipc_path = os.path.join(
             tempfile.gettempdir(), f"pi-assistant-mpv-{os.getpid()}.sock"
         )
@@ -184,48 +197,35 @@ class MusicPlayer:
                     "--no-video",
                     "--no-terminal",
                     "--audio-device=auto",
+                    "--no-ytdl",
+                    "--cache=yes",
                     f"--volume={_NORMAL_VOLUME}",
                     f"--input-ipc-server={self._ipc_path}",
-                    f"--script-opts=ytdl_hook-ytdl_path={ytdlp}",
-                    url,
+                    stream_url,
                 ],
                 stdout=subprocess.DEVNULL,
             )
-            self._ducked = False
-            self._current = {
-                "title": title,
-                "channel": video.get("channel"),
-                "duration": video.get("duration"),
-                "thumbnail": video.get("thumbnail"),
-            }
-            # Fire-and-forget: don't block the response on the IPC socket appearing.
-            # duck() will no-op until mpv is up, which is fine.
-            asyncio.create_task(self._await_ipc(timeout=2.0))
-            self._watcher = asyncio.create_task(self._watch_until_exit())
-            await self._emit_change()
-            print(f"[music] mpv spawn took {time.monotonic() - t1:.2f}s (total so far {time.monotonic() - t0:.2f}s)")
-            return f"Now playing: {title}"
         except FileNotFoundError:
-            # Try ffplay as fallback
             try:
-                result = subprocess.run(
-                    [ytdlp, "-g", "-f", "bestaudio", url],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                self._process = subprocess.Popen(
+                    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", stream_url],
+                    stdout=subprocess.DEVNULL,
                 )
-                audio_url = result.stdout.strip()
+            except FileNotFoundError:
+                return "No audio player installed. Run: sudo apt install mpv"
 
-                if audio_url:
-                    self._process = subprocess.Popen(
-                        ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", audio_url],
-                        stdout=subprocess.DEVNULL,
-                    )
-                    return f"Now playing: {title}"
-            except Exception as e:
-                return f"Playback failed: {e}. Install mpv: sudo apt install mpv"
-
-        return f"Found: {title}, but no player available. Install mpv."
+        self._ducked = False
+        self._current = {
+            "title": title,
+            "channel": video.get("channel"),
+            "duration": video.get("duration"),
+            "thumbnail": video.get("thumbnail"),
+        }
+        asyncio.create_task(self._await_ipc(timeout=2.0))
+        self._watcher = asyncio.create_task(self._watch_until_exit())
+        await self._emit_change()
+        print(f"[music] mpv spawn {time.monotonic() - t1:.2f}s, total {time.monotonic() - t0:.2f}s")
+        return f"Now playing: {title}"
 
     async def _stop_internal(self, emit: bool) -> str:
         """Stop playback and optionally notify subscribers."""
