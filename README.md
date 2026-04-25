@@ -170,14 +170,37 @@ All settings live in `~/pi-assistant/.env` (loaded by systemd via `EnvironmentFi
 | `GOOGLE_API_KEY` | _required_ | Gemini API key. |
 | `LLM_MODEL` | `gemini-2.5-flash` | Any Gemini chat model id. |
 | `WAKE_WORD` | `hey_jarvis` | Any pretrained openWakeWord model name. |
-| `WAKE_WORD_THRESHOLD` | `0.6` | Raise (e.g. `0.7`) to reduce false wakes. |
-| `WAKE_WORD_CONSECUTIVE_FRAMES` | `2` | Frames over threshold required to fire. |
+| `WAKE_WORD_THRESHOLD` | `0.4` (in `.env`; code default is `0.6`) | Lower = more sensitive. See **Tuning the wake word** below. |
+| `WAKE_WORD_CONSECUTIVE_FRAMES` | `2` | Frames over threshold required to fire. Raise to `3` if you get false wakes despite a low threshold. |
 | `STT_MODEL_SIZE` | `tiny.en` | `tiny.en` / `base.en` / `small.en` (CPU cost rises fast). |
 | `TTS_VOICE` | `amy` | Piper voice — `amy`, `lessac`, `hfc_female`, `libritts_r`, `ryan_high`. |
 | `TTS_LENGTH_SCALE` | `0.8` | <1 = faster speech, >1 = slower. |
 | `WEATHER_LAT` | `40.7128` (NYC) | Latitude for the dashboard weather card. |
 | `WEATHER_LON` | `-74.0060` (NYC) | Longitude. Open-Meteo, no API key needed. |
 | `HOST` / `PORT` | `0.0.0.0` / `9091` | Where the FastAPI server binds. |
+
+### Tuning the wake word
+
+If you have to shout "Hey Jarvis" to get a response, the openWakeWord score is clearing the threshold but only barely. Watch live scores:
+
+```bash
+journalctl --user -u pi-assistant -f | grep -i 'wake word detected'
+# Wake word detected: 'hey_jarvis' (score: 0.87)
+```
+
+If your usable scores cluster around 0.5–0.8, the default code threshold of 0.6 is too strict. Tune via `.env`:
+
+| Symptom | Try |
+| --- | --- |
+| Have to shout / move closer to the mic | Lower `WAKE_WORD_THRESHOLD` to `0.4`, then `0.3` |
+| Random TV / conversation triggers it | Raise `WAKE_WORD_THRESHOLD` to `0.5`+ **or** raise `WAKE_WORD_CONSECUTIVE_FRAMES` to `3` |
+| Mic gain seems low first | `amixer -c 0 sset 'Mic' 100%` (USB PnP capture) before lowering the threshold further |
+
+Restart after changing `.env`:
+
+```bash
+systemctl --user restart pi-assistant
+```
 
 ### Tuning the listen behaviour
 
