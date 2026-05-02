@@ -371,11 +371,46 @@ html, body {
     font-weight: 600;
     color: #4c1d95;
 }
-.wake-label-bottom {
-    font-size: 14px;
-    letter-spacing: 0.06em;
-    font-weight: 700;
-    color: #1e1b4b;
+.wake-bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 4px;
+    height: 28px;
+    margin-top: 4px;
+}
+.wake-bars span {
+    width: 5px;
+    border-radius: 2px;
+    background: linear-gradient(to top, #6366f1, #a78bfa);
+    transform-origin: bottom;
+    animation: wake-bar-idle 1.4s ease-in-out infinite;
+    box-shadow: 0 0 4px rgba(167, 139, 250, 0.4);
+}
+.wake-bars span:nth-child(1) { animation-delay: 0s;    }
+.wake-bars span:nth-child(2) { animation-delay: 0.18s; }
+.wake-bars span:nth-child(3) { animation-delay: 0.36s; }
+.wake-bars span:nth-child(4) { animation-delay: 0.54s; }
+
+@keyframes wake-bar-idle {
+    0%, 100% { height: 28%; opacity: 0.55; }
+    50%      { height: 70%; opacity: 0.85; }
+}
+
+@keyframes wake-bar-active {
+    0%, 100% { height: 45%; opacity: 0.85; }
+    50%      { height: 100%; opacity: 1; }
+}
+
+/* Brighter, faster bars while assistant is engaged or wake just fired. */
+body[data-state="listening"] .wake-bars span,
+body[data-state="thinking"]  .wake-bars span,
+body[data-state="speaking"]  .wake-bars span,
+body.ai-wake                 .wake-bars span {
+    animation-name: wake-bar-active;
+    animation-duration: 0.6s;
+    background: linear-gradient(to top, #a78bfa, #ec4899);
+    box-shadow: 0 0 8px rgba(236, 72, 153, 0.55);
 }
 .wake-meta {
     margin-top: 14px;
@@ -574,6 +609,66 @@ html, body {
     margin-left: 2px;
 }
 
+/* ===== Volume control ===== */
+.volume-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    min-height: 38px;
+}
+.volume-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent-2);
+}
+.volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 110px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+    margin: 0;
+}
+.volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-2);
+    border: none;
+    box-shadow: 0 0 6px rgba(167,139,250,0.5);
+    cursor: pointer;
+}
+.volume-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-2);
+    border: none;
+    box-shadow: 0 0 6px rgba(167,139,250,0.5);
+    cursor: pointer;
+}
+.volume-slider:focus-visible {
+    outline: 2px solid var(--accent-2);
+    outline-offset: 4px;
+}
+.volume-value {
+    font-size: 13px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    min-width: 34px;
+    text-align: right;
+}
+
 /* ===== Bluetooth panel ===== */
 .bt-card { padding: 18px 20px 16px; }
 .bt-head {
@@ -717,6 +812,15 @@ html, body {
     .btn svg { width: 15px; height: 15px; }
     .btn-badge { min-width: 16px; height: 16px; font-size: 10px; padding: 0 5px; }
 
+    .volume-control {
+        padding: 4px 10px;
+        gap: 6px;
+        min-height: 32px;
+    }
+    .volume-control svg { width: 15px; height: 15px; }
+    .volume-slider { width: 80px; }
+    .volume-value { font-size: 11px; min-width: 28px; }
+
     .card {
         padding: 10px 12px;
         border-radius: 10px;
@@ -758,7 +862,8 @@ html, body {
         gap: 1px;
     }
     .wake-label-top { font-size: 9px; letter-spacing: 0.10em; }
-    .wake-label-bottom { font-size: 11px; letter-spacing: 0.04em; }
+    .wake-bars { height: 18px; gap: 3px; margin-top: 2px; }
+    .wake-bars span { width: 4px; }
     .wake-meta { font-size: 11px; margin-top: 6px; gap: 6px; }
 
     .metric { padding: 8px 11px; }

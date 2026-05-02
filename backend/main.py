@@ -14,6 +14,7 @@ from backend.config import get_settings
 from backend.services.bluetooth import BluetoothError, bluetooth_service
 from backend.services.metrics import MetricsTracker
 from backend.services.music import music_player
+from backend.services.volume import VolumeError, volume_service
 from backend.services.weather import WeatherService
 
 
@@ -190,6 +191,26 @@ async def bluetooth_disconnect(body: MacBody):
         await bluetooth_service.disconnect(body.mac)
         return {"mac": body.mac, "connected": False}
     except BluetoothError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class VolumeBody(BaseModel):
+    level: float
+
+
+@app.get("/api/volume")
+async def get_volume():
+    try:
+        return await volume_service.get()
+    except VolumeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/volume")
+async def set_volume(body: VolumeBody):
+    try:
+        return await volume_service.set(body.level)
+    except VolumeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 

@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import queue
 import re
 import time
@@ -57,16 +56,11 @@ class AudioPipeline:
 
         self.audio_queue: queue.Queue = queue.Queue()
 
-        # Rolling RMS samples used to estimate the ambient noise floor so the
-        # silence threshold can adapt to a room with a TV vs a quiet room.
-        # ~200 chunks * 64ms = ~12.8s of recent audio; the lower-percentile is
-        # the floor (loud bursts don't poison it).
-        self._ambient_rms: collections.deque[float] = collections.deque(maxlen=200)
-
         self._wake_word: Any = None
         self._stt: Any = None
         self._tts: Any = None
         self._agent: Any = None
+        self._vad: Any = None
 
     @property
     def wake_word(self):
@@ -106,25 +100,26 @@ class AudioPipeline:
             )
         return self._agent
 
+    @property
+    def vad(self):
+        if self._vad is None:
+            from backend.audio.vad import SileroVAD
+            self._vad = SileroVAD(
+                sample_rate=self.settings.sample_rate,
+                threshold=self.settings.vad_threshold,
+            )
+        return self._vad
+
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
             print(f"Audio status: {status}")
         self.audio_queue.put(indata.copy())
-        try:
-            rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
-            self._ambient_rms.append(rms)
-            if self.metrics is not None:
+        if self.metrics is not None:
+            try:
+                rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
                 self.metrics.push_mic_rms(rms)
-        except Exception:
-            pass
-
-    def _ambient_floor(self) -> float:
-        """Lower-quartile RMS over the recent rolling window — robust to bursts
-        of speech, so it tracks the actual room floor (TV included)."""
-        if len(self._ambient_rms) < 30:
-            return 0.006
-        samples = sorted(self._ambient_rms)
-        return samples[len(samples) // 4]
+            except Exception:
+                pass
 
     def _warmup(self):
         """Pre-load heavy models so the first activation isn't slow."""
@@ -132,6 +127,10 @@ class AudioPipeline:
             self.tts.warmup()
         except Exception as e:
             print(f"TTS warmup failed: {e}")
+        try:
+            _ = self.vad
+        except Exception as e:
+            print(f"VAD warmup failed: {e}")
 
     async def run(self):
         """Main loop - listen for wake word and process commands."""
@@ -238,20 +237,15 @@ class AudioPipeline:
         if self.metrics is not None:
             await self.metrics.on_listen_start()
         self._drain_queue()
+        self.vad.reset()
 
-        # 1024-sample chunks at 16 kHz → ~0.064s/chunk.
+        # 1024-sample chunks at 16 kHz → ~0.064s/chunk; each chunk = 2 VAD windows.
         audio_buffer = []
         silence_chunks = 0
         voiced_chunks = 0
-        max_silence = 14        # ~0.9s of trailing silence -> end of utterance
+        max_silence = 11        # ~0.7s of trailing silence -> end of utterance
         max_duration = 235      # ~15s safety cap (don't hit on normal speech)
         min_voiced = 3          # require at least a bit of actual speech
-        # Adapt the speech/silence threshold to the current room floor (TV,
-        # fan, AC) so distant background speech doesn't keep the recorder
-        # open forever. Floor × 3 keeps close-mic speech well above ambient
-        # while a hard min handles a dead-quiet room.
-        silence_rms = max(0.018, self._ambient_floor() * 3.0)
-        print(f"[vad] ambient_floor={self._ambient_floor():.4f} silence_rms={silence_rms:.4f}")
         # Follow-up mode: if no speech starts within ~6s, drop back to wake word.
         wait_for_speech_budget = 95 if is_follow_up else max_duration
         pre_speech_silence = 0
@@ -262,8 +256,8 @@ class AudioPipeline:
                     None, lambda: self.audio_queue.get(timeout=0.1)
                 )
 
-                rms = float(np.sqrt(np.mean(chunk**2)))
-                voiced = rms >= silence_rms
+                prob = await asyncio.to_thread(self.vad.chunk_speech_prob, chunk)
+                voiced = prob >= self.vad.threshold
 
                 if is_follow_up and voiced_chunks == 0 and not voiced:
                     pre_speech_silence += 1

@@ -29,7 +29,6 @@ class Dashboard {
             utterance: document.getElementById('utterance'),
             duration: document.getElementById('duration'),
             wakeArc: document.getElementById('wake-arc'),
-            wakeState: document.getElementById('wake-state'),
             wakeConf: document.getElementById('wake-conf'),
             sttMs: document.getElementById('stt-ms'),
             sttFoot: document.getElementById('stt-foot'),
@@ -57,6 +56,7 @@ class Dashboard {
         };
 
         this.bluetooth = new BluetoothPanel(this.el);
+        this.volume = new VolumeControl();
         this.buildWaveform();
         this.connect();
 
@@ -184,7 +184,6 @@ class Dashboard {
         const conf = Math.max(0, Math.min(1, score || 0));
         const offset = WAKE_RING_CIRCUMFERENCE * (1 - conf);
         this.el.wakeArc.setAttribute('stroke-dashoffset', offset);
-        this.el.wakeState.textContent = 'DETECTED';
         this.el.wakeConf.textContent = `${conf.toFixed(2)} conf`;
 
         // Bright pulse on the screen-edge glow at the moment of detection.
@@ -200,7 +199,6 @@ class Dashboard {
         clearTimeout(this._wakeResetTimer);
         this._wakeResetTimer = setTimeout(() => {
             this.el.wakeArc.setAttribute('stroke-dashoffset', WAKE_RING_CIRCUMFERENCE);
-            this.el.wakeState.textContent = 'IDLE';
         }, 4000);
     }
 
@@ -565,6 +563,61 @@ class BluetoothPanel {
         li.appendChild(info);
         li.appendChild(btn);
         return li;
+    }
+}
+
+class VolumeControl {
+    constructor() {
+        this.slider = document.getElementById('volume-slider');
+        this.value = document.getElementById('volume-value');
+        this.pendingPost = null;
+        this.postTimer = null;
+
+        this.slider.addEventListener('input', () => this.onInput());
+        this.refresh().catch(() => {});
+    }
+
+    async refresh() {
+        try {
+            const res = await fetch('/api/volume');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            this.apply(data.level);
+        } catch (_) {
+            this.value.textContent = '—';
+        }
+    }
+
+    apply(level) {
+        const pct = Math.round(Math.max(0, Math.min(1, level)) * 100);
+        this.slider.value = String(pct);
+        this.value.textContent = `${pct}%`;
+    }
+
+    onInput() {
+        const pct = parseInt(this.slider.value, 10);
+        this.value.textContent = `${pct}%`;
+        // Debounce — wpctl is fast but we don't need a call per pixel of drag.
+        clearTimeout(this.postTimer);
+        this.postTimer = setTimeout(() => this.post(pct / 100), 80);
+    }
+
+    async post(level) {
+        try {
+            const res = await fetch('/api/volume', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ level }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            // Only resync the slider if the user isn't actively dragging right now.
+            if (document.activeElement !== this.slider) {
+                this.apply(data.level);
+            }
+        } catch (_) {
+            // Leave the slider where the user put it; refresh on next page load.
+        }
     }
 }
 

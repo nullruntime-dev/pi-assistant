@@ -38,8 +38,8 @@ class SpeechToText:
         if audio.dtype == np.int16:
             audio = audio.astype(np.float32) / 32768.0
 
-        # Pipeline already gates on RMS, so Whisper's Silero VAD pass would
-        # be redundant overhead.
+        # Pipeline already runs Silero VAD inline — Whisper's own vad_filter
+        # would re-do the same work.
         segments, info = self.model.transcribe(
             audio,
             language="en",

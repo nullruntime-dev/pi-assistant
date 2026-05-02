@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     sample_rate: int = 16000
     channels: int = 1
 
+    # Voice activity detection (Silero). Higher = less sensitive (needs louder/clearer
+    # speech to count as voiced). 0.5 is Silero's stock default; raise toward 0.7 in
+    # noisy rooms, drop toward 0.4 if quiet voices are getting cut off.
+    vad_threshold: float = 0.55
+
     # TTS
     tts_voice: str = "amy"
     # Piper speech rate — lower is faster. 1.0 is model default, 0.9 is a snappier feel.
